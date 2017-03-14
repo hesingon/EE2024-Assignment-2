@@ -12,6 +12,8 @@
 #include "lpc17xx_ssp.h"
 #include "lpc17xx_timer.h"
 
+//#include "stdio.h"
+
 #include "led7seg.h"
 #include "joystick.h"
 #include "pca9532.h"
@@ -187,8 +189,8 @@ static void playSong(uint8_t *song) {
      * "E2,F4,"
      */
 
-    while(*song != '\0') {
-        led7seg_setChar(*song, FALSE);
+    while(*song != '\0') {                  //*song is pointer, pointing to start of string;
+        led7seg_setChar(*song, FALSE);      //"\0" this character indicates end of string;
         note = getNote(*song++);
         if (*song == '\0')
             break;
@@ -204,8 +206,8 @@ static void playSong(uint8_t *song) {
     }
 }
 
-//static uint8_t * song = (uint8_t*)"C2.C2,D4,C4,F4,E8,";
-static uint8_t * song = (uint8_t*)"C2.C2,D4,C4,F4,E8,C2.C2,D4,C4,G4,F8,C2.C2,c4,A4,F4,E4,D4,H2.H2,A4,F4,G4,F8,";
+static uint8_t * song = (uint8_t*)"C2.C2,D4,C4,F4,E8,";
+//static uint8_t * song = (uint8_t*)"C2.C2,D4,C4,F4,E8,C2.C2,D4,C4,G4,F8,C2.C2,c4,A4,F4,E4,D4,H2.H2,A4,F4,G4,F8,";
         //"D4,B4,B4,A4,A4,G4,E4,D4.D2,E4,E4,A4,F4,D8.D4,d4,d4,c4,c4,B4,G4,E4.E2,F4,F4,A4,A4,G8,";
 
 
@@ -276,7 +278,17 @@ static void init_GPIO(void)
     PinCfg.Portnum = 1;
     PinCfg.Pinnum = 31;
     PINSEL_ConfigPin(&PinCfg);
+    PinCfg.Portnum = 0;
+    PinCfg.Pinnum = 4;
+    PINSEL_ConfigPin(&PinCfg);
 
+    //PINSEL_CFG_Type PinCfg;
+    //PinCfg.Funcnum = 0;
+    //PinCfg.OpenDrain = 0;
+    //PinCfg.Pinmode = 0;
+    //PinCfg.Portnum = 2;
+    //PinCfg.Pinnum = 10;
+    //PINSEL_ConfigPin(&PinCfg);
 }
 
 
@@ -297,11 +309,15 @@ int main (void) {
     uint8_t state    = 0;
 
     uint8_t btn1 = 0;
+    uint8_t btn2 = 0;
+
+    Bool tone_toggle = FALSE;
 
     uint8_t ch = 48;
     uint16_t ledNum = 1;
-    uint8_t rgbNum = 1;
+    uint8_t rgbNum = 0;
 
+    uint32_t btn2_time = msTicks;
     uint32_t led7seg_time = msTicks;
     uint32_t ledArr_time = msTicks;
     uint32_t ledRGB_time = msTicks;
@@ -399,9 +415,12 @@ int main (void) {
         /* ############ Trimpot and RGB LED  ########### */
         /* # */
 
-        btn1 = (GPIO_ReadValue(1) >> 31) & 0x01;
 
         if (ch==58)
+        {
+            ch=65;
+        }
+        if (ch==71)
         {
             ch=48;
         }
@@ -410,9 +429,9 @@ int main (void) {
             ledNum=1;
         }
 
-        if(rgbNum>=0xff)
+        if(rgbNum>=0x02)
         {
-            rgbNum=1;
+            rgbNum=0;
         }
 
 
@@ -430,14 +449,40 @@ int main (void) {
             ledArr_time=msTicks;
         }
 
-        if((msTicks-ledRGB_time)>1000)
+        if((msTicks-ledRGB_time)>2000)
         {
-            rgb_setLeds(rgbNum);
-            rgbNum++;
+            rgb_setLeds(rgbNum++);
+            //rgbNum++;
             ledRGB_time=msTicks;
         }
 
-        if (btn1 == 0 )
+
+        btn2 = (GPIO_ReadValue(0) >> 4) & 0x01;
+
+
+        if((btn2 == 0) && ((msTicks-btn2_time)>200))
+        {
+            tone_toggle=~tone_toggle;
+            btn2_time=msTicks;
+        }
+
+        if(tone_toggle)
+        {
+            NOTE_PIN_HIGH();
+            Timer0_us_Wait(4000 / 2);
+
+            NOTE_PIN_LOW();
+            Timer0_us_Wait(4000 / 2);
+        }
+        else
+        {
+            NOTE_PIN_LOW();
+        }
+
+
+        btn1 = (GPIO_ReadValue(1) >> 31) & 0x01;
+
+        if (btn1 == 0)
         {
             playSong(song);
 
