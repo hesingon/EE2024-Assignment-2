@@ -314,13 +314,15 @@ int main (void) {
     Bool tone_toggle = FALSE;
 
     uint8_t ch = 48;
-    uint16_t ledNum = 1;
+    uint32_t ledNum = 1;
     uint8_t rgbNum = 0;
 
     uint32_t btn2_time = msTicks;
     uint32_t led7seg_time = msTicks;
     uint32_t ledArr_time = msTicks;
     uint32_t ledRGB_time = msTicks;
+
+    uint32_t lightReading;
 
 
 //sysTick
@@ -336,6 +338,7 @@ int main (void) {
     pca9532_init();
     joystick_init();
     acc_init();
+    light_init();
     oled_init();
     led7seg_init();
 
@@ -397,6 +400,10 @@ int main (void) {
 
 
         /* # */
+        /* ############## Light Sensor #################### */
+        lightReading = light_read();
+
+        /* # */
         /* ############################################# */
 
 
@@ -424,7 +431,8 @@ int main (void) {
         {
             ch=48;
         }
-        if (ledNum>=0x8000)
+
+        if (ledNum>=0x00010000)
         {
             ledNum=1;
         }
