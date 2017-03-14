@@ -21,6 +21,14 @@
 
 static uint8_t barPos = 2;
 
+volatile uint32_t msTicks; // counter for 1ms SysTicks
+
+// ****************
+//  SysTick_Handler - just increment SysTick counter
+void SysTick_Handler(void) {
+    msTicks++;
+}
+
 static void moveBar(uint8_t steps, uint8_t dir)
 {
     uint16_t ledOn = 0;
@@ -35,7 +43,7 @@ static void moveBar(uint8_t steps, uint8_t dir)
     barPos += (dir*steps);
     barPos = (barPos % 16);
 
-    pca9532_setLeds(ledOn, 0xffff);
+    //pca9532_setLeds(ledOn, 0xffff);
 }
 
 
@@ -291,11 +299,23 @@ int main (void) {
     uint8_t btn1 = 0;
 
     uint8_t ch = 48;
-    uint32_t countr = 0;
+    uint16_t ledNum = 1;
+    uint8_t rgbNum = 1;
+
+    uint32_t led7seg_time = msTicks;
+    uint32_t ledArr_time = msTicks;
+    uint32_t ledRGB_time = msTicks;
+
+
+//sysTick
+    if (SysTick_Config(SystemCoreClock / 1000)) {
+        while (1);  // Capture error
+    }
 
     init_i2c();
     init_ssp();
     init_GPIO();
+    rgb_init();
 
     pca9532_init();
     joystick_init();
@@ -304,6 +324,9 @@ int main (void) {
     led7seg_init();
 
 
+    //rgb_setLeds(0);
+
+    //pca9532_setLeds(65280,0);
 
     /*
      * Assume base board in zero-g position when reading first value.
@@ -352,7 +375,7 @@ int main (void) {
         }
 
         if (y > 1 && wait++ > (40 / (1 + (y/10)))) {
-            moveBar(1, dir);
+            //moveBar(1, dir);
             wait = 0;
         }
 
@@ -368,7 +391,7 @@ int main (void) {
         if (state != 0)
             drawOled(state);
 
-        /* # */
+        /* #rgb_LED */
         /* ############################################# */
 
 
@@ -377,17 +400,42 @@ int main (void) {
         /* # */
 
         btn1 = (GPIO_ReadValue(1) >> 31) & 0x01;
+
         if (ch==58)
         {
             ch=48;
         }
-        if (countr==100)
+        if (ledNum>=0x8000)
         {
-            countr=0;
-            ch++;
+            ledNum=1;
         }
-        led7seg_setChar(ch, FALSE);
-        countr++;
+
+        if(rgbNum>=0xff)
+        {
+            rgbNum=1;
+        }
+
+
+        if((msTicks-led7seg_time)>1000)
+        {
+            led7seg_setChar(ch, FALSE);
+            ch++;
+            led7seg_time=msTicks;
+        }
+
+        if((msTicks-ledArr_time)>1000)
+        {
+            pca9532_setLeds(ledNum,0xffff);
+            ledNum*=2;
+            ledArr_time=msTicks;
+        }
+
+        if((msTicks-ledRGB_time)>1000)
+        {
+            rgb_setLeds(rgbNum);
+            rgbNum++;
+            ledRGB_time=msTicks;
+        }
 
         if (btn1 == 0 )
         {
