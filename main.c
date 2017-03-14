@@ -98,21 +98,21 @@ static void drawOled(uint8_t joyState)
 
 
 static uint32_t notes[] = {
-        2272, // A - 440 Hz
-        2024, // B - 494 Hz
-        3816, // C - 262 Hz
-        3401, // D - 294 Hz
-        3030, // E - 330 Hz
-        2865, // F - 349 Hz
-        2551, // G - 392 Hz
-        2152, // H - 392 Hz
-        1136, // a - 880 Hz
-        1012, // b - 988 Hz
-        1912, // c - 523 Hz
-        1703, // d - 587 Hz
-        1517, // e - 659 Hz
-        1432, // f - 698 Hz
-        1275, // g - 784 Hz
+        2272, // A - 440 Hz -6.
+        2024, // B - 494 Hz -7.
+        3816, // C - 262 Hz -1
+        3401, // D - 294 Hz -2
+        3030, // E - 330 Hz -3
+        2865, // F - 349 Hz -4
+        2551, // G - 392 Hz -5
+        2152, // H - 392 Hz -7^b
+        1136, // a - 880 Hz -6
+        1012, // b - 988 Hz -7
+        1912, // c - 523 Hz -1^
+        1703, // d - 587 Hz -2^
+        1517, // e - 659 Hz -3^
+        1432, // f - 698 Hz -4^
+        1275, // g - 784 Hz -5^
 };
 
 static void playNote(uint32_t note, uint32_t durationMs) {
@@ -205,8 +205,8 @@ static void playSong(uint8_t *song) {
 
     }
 }
-
-static uint8_t * song = (uint8_t*)"C2.C2,D4,C4,F4,E8,";
+static uint8_t * song = (uint8_t*)"e1,e2.e2,c1,e2,g4_G4,c3,G2,E2,A4,B2,H2,A4,G2,e2,g2,a2_f2,g2,e2+c1_d2,B4,";
+//static uint8_t * song = (uint8_t*)"C2.C2,D4,C4,F4,E8,";
 //static uint8_t * song = (uint8_t*)"C2.C2,D4,C4,F4,E8,C2.C2,D4,C4,G4,F8,C2.C2,c4,A4,F4,E4,D4,H2.H2,A4,F4,G4,F8,";
         //"D4,B4,B4,A4,A4,G4,E4,D4.D2,E4,E4,A4,F4,D8.D4,d4,d4,c4,c4,B4,G4,E4.E2,F4,F4,A4,A4,G8,";
 
@@ -477,10 +477,10 @@ int main (void) {
         if(tone_toggle)
         {
             NOTE_PIN_HIGH();
-            Timer0_us_Wait(4000 / 2);
+            Timer0_us_Wait(1432 / 2);
 
             NOTE_PIN_LOW();
-            Timer0_us_Wait(4000 / 2);
+            Timer0_us_Wait(1432 / 2);
         }
         else
         {
