@@ -12,7 +12,7 @@
 #include "lpc17xx_ssp.h"
 #include "lpc17xx_timer.h"
 
-//#include "stdio.h"
+#include <stdio.h>
 
 #include "led7seg.h"
 #include "joystick.h"
@@ -20,8 +20,10 @@
 #include "acc.h"
 #include "oled.h"
 #include "rgb.h"
+#include "light.h"
+#include "temp.h"
 
-static uint8_t barPos = 2;
+//static uint8_t barPos = 2;
 
 volatile uint32_t msTicks; // counter for 1ms SysTicks
 
@@ -31,6 +33,7 @@ void SysTick_Handler(void) {
     msTicks++;
 }
 
+/*
 static void moveBar(uint8_t steps, uint8_t dir)
 {
     uint16_t ledOn = 0;
@@ -47,8 +50,9 @@ static void moveBar(uint8_t steps, uint8_t dir)
 
     //pca9532_setLeds(ledOn, 0xffff);
 }
+*/
 
-
+/*
 static void drawOled(uint8_t joyState)
 {
     static int wait = 0;
@@ -89,7 +93,7 @@ static void drawOled(uint8_t joyState)
         lastY = currY;
     }
 }
-
+*/
 
 #define NOTE_PIN_HIGH() GPIO_SetValue(0, 1<<26);
 #define NOTE_PIN_LOW()  GPIO_ClearValue(0, 1<<26);
@@ -205,7 +209,7 @@ static void playSong(uint8_t *song) {
 
     }
 }
-static uint8_t * song = (uint8_t*)"e1,e2.e2,c1,e2,g4_G4,c3,G2,E2,A4,B2,H2,A4,G2,e2,g2,a2_f2,g2,e2+c1_d2,B4,";
+static uint8_t * song = (uint8_t*)"e1,e2.e2,c1,e2,g4_G4,c3,G2,E2,A2,B1,H1,A2,G2,e2,g2,a2_f2,g2,e2+c1_d2,B4,";
 //static uint8_t * song = (uint8_t*)"C2.C2,D4,C4,F4,E8,";
 //static uint8_t * song = (uint8_t*)"C2.C2,D4,C4,F4,E8,C2.C2,D4,C4,G4,F8,C2.C2,c4,A4,F4,E4,D4,H2.H2,A4,F4,G4,F8,";
         //"D4,B4,B4,A4,A4,G4,E4,D4.D2,E4,E4,A4,F4,D8.D4,d4,d4,c4,c4,B4,G4,E4.E2,F4,F4,A4,A4,G8,";
@@ -281,6 +285,8 @@ static void init_GPIO(void)
     PinCfg.Portnum = 0;
     PinCfg.Pinnum = 4;
     PINSEL_ConfigPin(&PinCfg);
+    PinCfg.Pinnum = 2;
+    PINSEL_ConfigPin(&PinCfg);
 
     //PINSEL_CFG_Type PinCfg;
     //PinCfg.Funcnum = 0;
@@ -290,7 +296,10 @@ static void init_GPIO(void)
     //PinCfg.Pinnum = 10;
     //PINSEL_ConfigPin(&PinCfg);
 }
-
+static uint32_t getTicks()
+{
+    return msTicks;
+}
 
 int main (void) {
 
@@ -303,10 +312,10 @@ int main (void) {
 
     int8_t y = 0;
     int8_t z = 0;
-    uint8_t dir = 1;
-    uint8_t wait = 0;
+    //uint8_t dir = 1;
+    //uint8_t wait = 0;
 
-    uint8_t state    = 0;
+    //uint8_t state    = 0;
 
     uint8_t btn1 = 0;
     uint8_t btn2 = 0;
@@ -315,14 +324,15 @@ int main (void) {
 
     uint8_t ch = 48;
     uint32_t ledNum = 1;
-    uint8_t rgbNum = 0;
+    uint8_t rgbNum = 4;
+    uint8_t rgbTogg = 0;
 
-    uint32_t btn2_time = msTicks;
-    uint32_t led7seg_time = msTicks;
-    uint32_t ledArr_time = msTicks;
-    uint32_t ledRGB_time = msTicks;
+    uint32_t currTime = getTicks();
+    uint32_t btn2_time = getTicks();
 
-    uint32_t lightReading;
+    uint32_t * lightReading;
+    uint32_t tempReading;
+    //uint32_t (*msTicks) (void);
 
 
 //sysTick
@@ -333,14 +343,15 @@ int main (void) {
     init_i2c();
     init_ssp();
     init_GPIO();
-    rgb_init();
 
+    rgb_init();
     pca9532_init();
-    joystick_init();
+    //joystick_init();
     acc_init();
-    light_init();
+    light_enable();
     oled_init();
     led7seg_init();
+    temp_init(&getTicks);
 
 
     //rgb_setLeds(0);
@@ -371,20 +382,127 @@ int main (void) {
 
     /* <---- Speaker ------ */
 
-    moveBar(1, dir);
-    oled_clearScreen(OLED_COLOR_BLACK);
+    //moveBar(1, dir);
+    oled_clearScreen(OLED_COLOR_WHITE);
 
     while (1)
     {
 
+        //conditions
+        if (ch==58) //char rollover, digits to alphabets
+        {
+            ch=65;
+        }
+        if (ch==71) //char rollover, alphabets to digits
+        {
+            ch=48;
+        }
+
+        if (ledNum>=0x00010000) //ledArr rollover, pca9532
+        {
+            ledNum=1;
+        }
+
+        if(rgbNum>=0x06) //RGB rollover, red LED
+        {
+            rgbNum=4;
+        }
+
+        if(rgbTogg>=2) //RGB toggle,
+        {
+            rgbTogg=0;
+        }
+
+        if((getTicks()-currTime)>1000)
+        {
+            //temp sensor
+            tempReading=temp_read();
+            printf("temp: %u\n", tempReading);
+
+            //accelerometer
+            acc_read(&x, &y, &z);
+            x = x+xoff;
+            y = y+yoff;
+            z = z+zoff;
+            printf("acc: x:%d y:%d z:%d \n", x, y, z);
+
+            //light sensor
+            char * light_sensor_val[40];
+            lightReading = light_read();
+            printf("light: %u\n", lightReading);
+            sprintf(light_sensor_val, "Light: %u" , lightReading);
+            uint8_t * display = (uint8_t*)"Second Line";
+            oled_putString(1,0,light_sensor_val,OLED_COLOR_BLACK,OLED_COLOR_WHITE);
+            oled_putString(1,8,display,OLED_COLOR_BLACK,OLED_COLOR_WHITE);
+
+            //7seg
+            led7seg_setChar(ch, FALSE);
+            ch++;
+
+            //pca9532
+            pca9532_setLeds(ledNum,0xffff);
+            ledNum*=2;
+
+            //RGB
+            if (rgbTogg==0)
+            {
+                rgb_setLeds(rgbNum++);
+            }
+            rgbTogg++;
+
+            //reconfig currTime
+            currTime=getTicks();
+        }
+
+        btn2 = (GPIO_ReadValue(0) >> 4) & 0x01;
+
+
+        if((btn2 == 0) && ((getTicks()-btn2_time)>200))
+        {
+            tone_toggle=~tone_toggle;
+            btn2_time=getTicks();
+        }
+
+        if(tone_toggle)
+        {
+            playNote(notes[14],8);
+            /*
+            NOTE_PIN_HIGH();
+            Timer0_us_Wait(1432 / 2);
+
+            NOTE_PIN_LOW();
+            Timer0_us_Wait(1432 / 2);
+            */
+        }
+        else
+        {
+            NOTE_PIN_LOW();
+        }
+
+
+        btn1 = (GPIO_ReadValue(1) >> 31) & 0x01;
+
+        if (btn1 == 0)
+        {
+            playSong(song);
+
+        }
+
         /* ####### Accelerometer and LEDs  ###### */
         /* # */
 
-        acc_read(&x, &y, &z);
-        x = x+xoff;
-        y = y+yoff;
-        z = z+zoff;
-
+        /*
+        if((msTicks-acc_time)>1000)
+        {
+            acc_read(&x, &y, &z);
+            x = x+xoff;
+            y = y+yoff;
+            z = z+zoff;
+            printf("acc: x:%d y:%d z:%d \n", x, y, z);
+            acc_time=msTicks;
+        }
+        */
+        /*
         if (y < 0) {
             dir = 1;
             y = -y;
@@ -397,12 +515,23 @@ int main (void) {
             //moveBar(1, dir);
             wait = 0;
         }
+        */
 
 
         /* # */
         /* ############## Light Sensor #################### */
-        lightReading = light_read();
-
+        /*
+        if((msTicks-lightSensor_time)>1000)
+        {
+            char sensor_val[40];
+            lightReading = light_read();
+            printf("light: %u\n", lightReading);
+            sprintf(sensor_val, "Light: %u" , lightReading);
+            lightSensor_time=msTicks;
+            //uint8_t * display = (uint8_t*)"UVUVWEVWEVWE ONYETENYEVWE UGWEMUBWEM OSSAS";
+            oled_putString(0,0,sensor_val,OLED_COLOR_BLACK,OLED_COLOR_WHITE);
+        }
+        */
         /* # */
         /* ############################################# */
 
@@ -410,9 +539,14 @@ int main (void) {
         /* ####### Joystick and OLED  ###### */
         /* # */
 
+        //uint8_t * display = (uint8_t*)"UVUVWEVWEVWE ONYETENYEVWE UGWEMUBWEM OSSAS";
+        //oled_putString(0,0,display,OLED_COLOR_BLACK,OLED_COLOR_WHITE);
+
+        /*
         state = joystick_read();
         if (state != 0)
             drawOled(state);
+        */
 
         /* #rgb_LED */
         /* ############################################# */
@@ -423,26 +557,9 @@ int main (void) {
         /* # */
 
 
-        if (ch==58)
-        {
-            ch=65;
-        }
-        if (ch==71)
-        {
-            ch=48;
-        }
-
-        if (ledNum>=0x00010000)
-        {
-            ledNum=1;
-        }
-
-        if(rgbNum>=0x02)
-        {
-            rgbNum=0;
-        }
 
 
+        /*
         if((msTicks-led7seg_time)>1000)
         {
             led7seg_setChar(ch, FALSE);
@@ -460,42 +577,9 @@ int main (void) {
         if((msTicks-ledRGB_time)>2000)
         {
             rgb_setLeds(rgbNum++);
-            //rgbNum++;
             ledRGB_time=msTicks;
         }
-
-
-        btn2 = (GPIO_ReadValue(0) >> 4) & 0x01;
-
-
-        if((btn2 == 0) && ((msTicks-btn2_time)>200))
-        {
-            tone_toggle=~tone_toggle;
-            btn2_time=msTicks;
-        }
-
-        if(tone_toggle)
-        {
-            NOTE_PIN_HIGH();
-            Timer0_us_Wait(1432 / 2);
-
-            NOTE_PIN_LOW();
-            Timer0_us_Wait(1432 / 2);
-        }
-        else
-        {
-            NOTE_PIN_LOW();
-        }
-
-
-        btn1 = (GPIO_ReadValue(1) >> 31) & 0x01;
-
-        if (btn1 == 0)
-        {
-            playSong(song);
-
-        }
-
+        */
 
         Timer0_Wait(1);
     }
