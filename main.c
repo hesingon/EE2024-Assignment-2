@@ -15,8 +15,8 @@
 #include <stdio.h>
 
 #include "led7seg.h"
-#include "joystick.h"
-#include "pca9532.h"
+//#include "joystick.h"
+//#include "pca9532.h"
 #include "acc.h"
 #include "oled.h"
 #include "rgb.h"
@@ -309,9 +309,9 @@ int main (void) {
     int32_t zoff = 0;
 
     int8_t x = 0;
-
     int8_t y = 0;
     int8_t z = 0;
+
     //uint8_t dir = 1;
     //uint8_t wait = 0;
 
@@ -322,8 +322,8 @@ int main (void) {
 
     Bool tone_toggle = FALSE;
 
-    uint8_t ch = 48;
-    uint32_t ledNum = 1;
+    uint8_t ch = 0;
+    //uint32_t ledNum = 1;
     uint8_t rgbNum = 4;
     uint8_t rgbTogg = 0;
 
@@ -332,7 +332,25 @@ int main (void) {
 
     uint32_t * lightReading;
     uint32_t tempReading;
-    //uint32_t (*msTicks) (void);
+
+    uint32_t ch7seg[] = {
+            48, // 0
+            49, // 1
+            50, // 2
+            51, // 3
+            52, // 4
+            53, // 5
+            54, // 6
+            55, // 7
+            56, // 8
+            57, // 9
+            65, // A
+            66, // B
+            67, // C
+            68, // D
+            69, // E
+            70, // F
+    };
 
 
 //sysTick
@@ -344,8 +362,8 @@ int main (void) {
     init_ssp();
     init_GPIO();
 
-    rgb_init();
-    pca9532_init();
+    //rgb_init();
+    //pca9532_init();
     //joystick_init();
     acc_init();
     light_enable();
@@ -388,60 +406,52 @@ int main (void) {
     while (1)
     {
 
-        //conditions
-        if (ch==58) //char rollover, digits to alphabets
-        {
-            ch=65;
-        }
-        if (ch==71) //char rollover, alphabets to digits
-        {
-            ch=48;
-        }
-
+        /*
         if (ledNum>=0x00010000) //ledArr rollover, pca9532
         {
             ledNum=1;
         }
+        */
+        //conditions
+        if (ch==16) ch=0; //char rollover, 7seg
 
-        if(rgbNum>=0x06) //RGB rollover, red LED
-        {
-            rgbNum=4;
-        }
+        if(rgbNum>=0x06) rgbNum=4; //RGB rollover, red LED
 
-        if(rgbTogg>=2) //RGB toggle,
-        {
-            rgbTogg=0;
-        }
+        if(rgbTogg>=2) rgbTogg=0; //RGB toggle
 
         if((getTicks()-currTime)>1000)
         {
             //temp sensor
+            char * temp_sensor_value[40];
             tempReading=temp_read();
             printf("temp: %u\n", tempReading);
+            sprintf(temp_sensor_value,"Temp: %u",tempReading);
 
             //accelerometer
+            char * acc_sensor_value[40];
             acc_read(&x, &y, &z);
             x = x+xoff;
             y = y+yoff;
             z = z+zoff;
             printf("acc: x:%d y:%d z:%d \n", x, y, z);
+            sprintf(acc_sensor_value,"Acc: x:%d y:%d z:%d", x, y, z);
 
             //light sensor
             char * light_sensor_val[40];
             lightReading = light_read();
             printf("light: %u\n", lightReading);
             sprintf(light_sensor_val, "Light: %u" , lightReading);
-            uint8_t * display = (uint8_t*)"Second Line";
-            oled_putString(1,0,light_sensor_val,OLED_COLOR_BLACK,OLED_COLOR_WHITE);
-            oled_putString(1,8,display,OLED_COLOR_BLACK,OLED_COLOR_WHITE);
+            //uint8_t * display = (uint8_t*)"Second Line";
+            //oled_putString(1,0,light_sensor_val,OLED_COLOR_BLACK,OLED_COLOR_WHITE);
+            //oled_putString(1,8,display,OLED_COLOR_BLACK,OLED_COLOR_WHITE);
 
             //7seg
-            led7seg_setChar(ch, FALSE);
-            ch++;
+            led7seg_setChar(ch7seg[ch++], FALSE);
 
             //pca9532
-            pca9532_setLeds(ledNum,0xffff);
-            ledNum*=2;
+            //pca9532_setLeds(ledNum,0xffff);
+            //ledNum*=2;
+
 
             //RGB
             if (rgbTogg==0)
@@ -449,6 +459,15 @@ int main (void) {
                 rgb_setLeds(rgbNum++);
             }
             rgbTogg++;
+
+
+            //Display info on oLED, on '5' 'A' 'F'
+            if((ch==6)||(ch==11)||ch==16)
+            {
+                oled_putString(1,1,temp_sensor_value,OLED_COLOR_BLACK,OLED_COLOR_WHITE);
+                oled_putString(1,9,light_sensor_val,OLED_COLOR_BLACK,OLED_COLOR_WHITE);
+                oled_putString(1,17,acc_sensor_value,OLED_COLOR_BLACK,OLED_COLOR_WHITE);
+            }
 
             //reconfig currTime
             currTime=getTicks();
