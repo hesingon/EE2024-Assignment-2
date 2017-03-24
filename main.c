@@ -279,7 +279,7 @@ void monitorMode() {
 
     uint32_t currTime = getTicks();
 
-    int a=0,b=0;
+    int rgbRed = 0, rgbBlue = 0;
     int lightReading;
     float tempReading;
 
@@ -299,17 +299,17 @@ void monitorMode() {
     {
         if(tempReading> TEMP_HIGH_WARNING) {
             alert=TRUE;
-            a=1;
+            rgbRed = RGB_RED;
         }
         if(LowLightFlag && isMoving()) {
-            b=2;
+            rgbBlue = RGB_BLUE;
         }
         if(alert){
 
                 if((getTicks()-currTime)>333)
                 {
                     if(toggle){
-                        rgb_setLeds(4+a+b);
+                        rgb_setLeds(4 + rgbRed + rgbBlue);
                     }
                     else{
                         rgb_setLeds(4);
@@ -323,7 +323,7 @@ void monitorMode() {
 
         if (!btn1Press()) {
             currMode=Stable;
-            printf("GOING STABLE\n");
+            printf("GOING STABLE\n");  //How long does the oled display this?
             break;
         }
 
