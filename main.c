@@ -11,19 +11,38 @@
 #include "lpc17xx_i2c.h"
 #include "lpc17xx_ssp.h"
 #include "lpc17xx_timer.h"
+#include "lpc17xx_uart.h"
 
 #include <stdio.h>
 
 #include "led7seg.h"
-//#include "joystick.h"
-//#include "pca9532.h"
 #include "acc.h"
 #include "oled.h"
 #include "rgb.h"
 #include "light.h"
 #include "temp.h"
 
-//static uint8_t barPos = 2;
+typedef enum {
+    Monitor,
+    Stable,
+} Mode;
+
+Mode currMode=Monitor;
+
+static const int LIGHT_LOW_WARNING = 50;
+static const float TEMP_HIGH_WARNING = 25.0;
+
+Bool LowLightFlag;
+Bool HighTempFlag;
+Bool alert;
+
+int32_t xoff = 0;
+int32_t yoff = 0;
+int32_t zoff = 0;
+
+int8_t x = 0;
+int8_t y = 0;
+int8_t z = 0;
 
 volatile uint32_t msTicks; // counter for 1ms SysTicks
 
@@ -32,189 +51,6 @@ volatile uint32_t msTicks; // counter for 1ms SysTicks
 void SysTick_Handler(void) {
     msTicks++;
 }
-
-/*
-static void moveBar(uint8_t steps, uint8_t dir)
-{
-    uint16_t ledOn = 0;
-
-    if (barPos == 0)
-        ledOn = (1 << 0) | (3 << 14);
-    else if (barPos == 1)
-        ledOn = (3 << 0) | (1 << 15);
-    else
-        ledOn = 0x07 << (barPos-2);
-
-    barPos += (dir*steps);
-    barPos = (barPos % 16);
-
-    //pca9532_setLeds(ledOn, 0xffff);
-}
-*/
-
-/*
-static void drawOled(uint8_t joyState)
-{
-    static int wait = 0;
-    static uint8_t currX = 48;
-    static uint8_t currY = 32;
-    static uint8_t lastX = 0;
-    static uint8_t lastY = 0;
-
-    if ((joyState & JOYSTICK_CENTER) != 0) {
-        oled_clearScreen(OLED_COLOR_BLACK);
-        return;
-    }
-
-    if (wait++ < 3)
-        return;
-
-    wait = 0;
-
-    if ((joyState & JOYSTICK_UP) != 0 && currY > 0) {
-        currY--;
-    }
-
-    if ((joyState & JOYSTICK_DOWN) != 0 && currY < OLED_DISPLAY_HEIGHT-1) {
-        currY++;
-    }
-
-    if ((joyState & JOYSTICK_RIGHT) != 0 && currX < OLED_DISPLAY_WIDTH-1) {
-        currX++;
-    }
-
-    if ((joyState & JOYSTICK_LEFT) != 0 && currX > 0) {
-        currX--;
-    }
-
-    if (lastX != currX || lastY != currY) {
-        oled_putPixel(currX, currY, OLED_COLOR_WHITE);
-        lastX = currX;
-        lastY = currY;
-    }
-}
-*/
-
-#define NOTE_PIN_HIGH() GPIO_SetValue(0, 1<<26);
-#define NOTE_PIN_LOW()  GPIO_ClearValue(0, 1<<26);
-
-
-
-
-static uint32_t notes[] = {
-        2272, // A - 440 Hz -6.
-        2024, // B - 494 Hz -7.
-        3816, // C - 262 Hz -1
-        3401, // D - 294 Hz -2
-        3030, // E - 330 Hz -3
-        2865, // F - 349 Hz -4
-        2551, // G - 392 Hz -5
-        2152, // H - 392 Hz -7^b
-        1136, // a - 880 Hz -6
-        1012, // b - 988 Hz -7
-        1912, // c - 523 Hz -1^
-        1703, // d - 587 Hz -2^
-        1517, // e - 659 Hz -3^
-        1432, // f - 698 Hz -4^
-        1275, // g - 784 Hz -5^
-};
-
-static void playNote(uint32_t note, uint32_t durationMs) {
-
-    uint32_t t = 0;
-
-    if (note > 0) {
-
-        while (t < (durationMs*1000)) {
-            NOTE_PIN_HIGH();
-            Timer0_us_Wait(note / 2);
-            //delay32Us(0, note / 2);
-
-            NOTE_PIN_LOW();
-            Timer0_us_Wait(note / 2);
-            //delay32Us(0, note / 2);
-
-            t += note;
-        }
-
-    }
-    else {
-        Timer0_Wait(durationMs);
-        //delay32Ms(0, durationMs);
-    }
-}
-
-static uint32_t getNote(uint8_t ch)
-{
-    if (ch >= 'A' && ch <= 'H')
-        return notes[ch - 'A'];
-
-    if (ch >= 'a' && ch <= 'g')
-        return notes[ch - 'a' + 8];
-
-    return 0;
-}
-
-static uint32_t getDuration(uint8_t ch)
-{
-    if (ch < '0' || ch > '9')
-        return 400;
-
-    /* number of ms */
-
-    return (ch - '0') * 200;
-}
-
-static uint32_t getPause(uint8_t ch)
-{
-    switch (ch) {
-    case '+':
-        return 0;
-    case ',':
-        return 5;
-    case '.':
-        return 20;
-    case '_':
-        return 30;
-    default:
-        return 5;
-    }
-}
-
-static void playSong(uint8_t *song) {
-    uint32_t note = 0;
-    uint32_t dur  = 0;
-    uint32_t pause = 0;
-
-    /*
-     * A song is a collection of tones where each tone is
-     * a note, duration and pause, e.g.
-     *
-     * "E2,F4,"
-     */
-
-    while(*song != '\0') {                  //*song is pointer, pointing to start of string;
-        led7seg_setChar(*song, FALSE);      //"\0" this character indicates end of string;
-        note = getNote(*song++);
-        if (*song == '\0')
-            break;
-        dur  = getDuration(*song++);
-        if (*song == '\0')
-            break;
-        pause = getPause(*song++);
-
-        playNote(note, dur);
-        //delay32Ms(0, pause);
-        Timer0_Wait(pause);
-
-    }
-}
-static uint8_t * song = (uint8_t*)"e1,e2.e2,c1,e2,g4_G4,c3,G2,E2,A2,B1,H1,A2,G2,e2,g2,a2_f2,g2,e2+c1_d2,B4,";
-//static uint8_t * song = (uint8_t*)"C2.C2,D4,C4,F4,E8,";
-//static uint8_t * song = (uint8_t*)"C2.C2,D4,C4,F4,E8,C2.C2,D4,C4,G4,F8,C2.C2,c4,A4,F4,E4,D4,H2.H2,A4,F4,G4,F8,";
-        //"D4,B4,B4,A4,A4,G4,E4,D4.D2,E4,E4,A4,F4,D8.D4,d4,d4,c4,c4,B4,G4,E4.E2,F4,F4,A4,A4,G8,";
-
-
 
 static void init_ssp(void)
 {
@@ -281,111 +117,32 @@ static void init_GPIO(void)
     PinCfg.Pinmode = 0;
     PinCfg.Portnum = 1;
     PinCfg.Pinnum = 31;
-    PINSEL_ConfigPin(&PinCfg);
+    PINSEL_ConfigPin(&PinCfg); // SW4
     PinCfg.Portnum = 0;
     PinCfg.Pinnum = 4;
-    PINSEL_ConfigPin(&PinCfg);
+    PINSEL_ConfigPin(&PinCfg); // SW3
     PinCfg.Pinnum = 2;
-    PINSEL_ConfigPin(&PinCfg);
+    PINSEL_ConfigPin(&PinCfg); // Temp sensor
+    PinCfg.Pinmode = 0;
+    PinCfg.Portnum = 0;
+    PinCfg.Pinnum = 26;
+    PINSEL_ConfigPin(&PinCfg); // RGB B
+    PinCfg.Pinnum = 3;
+    PINSEL_ConfigPin(&PinCfg); // acc interrupt (may or may not use)
+    PinCfg.Portnum = 2;
+    PinCfg.Pinnum = 0;
+    PINSEL_ConfigPin(&PinCfg); // RGB R
+    PinCfg.Pinnum = 1;
+    PINSEL_ConfigPin(&PinCfg); // RGB G
+    PinCfg.Pinnum = 5;
+    PINSEL_ConfigPin(&PinCfg); // Temp sensor interrupt pin
 
-    //PINSEL_CFG_Type PinCfg;
-    //PinCfg.Funcnum = 0;
-    //PinCfg.OpenDrain = 0;
-    //PinCfg.Pinmode = 0;
-    //PinCfg.Portnum = 2;
-    //PinCfg.Pinnum = 10;
-    //PINSEL_ConfigPin(&PinCfg);
-}
-static uint32_t getTicks()
-{
-    return msTicks;
-}
+    GPIO_SetDir( 2, (1<<0), 1 );
+    GPIO_SetDir( 0, (1<<26), 1 );
+    GPIO_SetDir( 2, (1<<1), 1 );
 
-int main (void) {
-
-
-    int32_t xoff = 0;
-    int32_t yoff = 0;
-    int32_t zoff = 0;
-
-    int8_t x = 0;
-    int8_t y = 0;
-    int8_t z = 0;
-
-    //uint8_t dir = 1;
-    //uint8_t wait = 0;
-
-    //uint8_t state    = 0;
-
-    uint8_t btn1 = 0;
-    uint8_t btn2 = 0;
-
-    Bool tone_toggle = FALSE;
-
-    uint8_t ch = 0;
-    //uint32_t ledNum = 1;
-    uint8_t rgbNum = 4;
-    uint8_t rgbTogg = 0;
-
-    uint32_t currTime = getTicks();
-    uint32_t btn2_time = getTicks();
-
-    uint32_t * lightReading;
-    uint32_t tempReading;
-
-    uint32_t ch7seg[] = {
-            48, // 0
-            49, // 1
-            50, // 2
-            51, // 3
-            52, // 4
-            53, // 5
-            54, // 6
-            55, // 7
-            56, // 8
-            57, // 9
-            65, // A
-            66, // B
-            67, // C
-            68, // D
-            69, // E
-            70, // F
-    };
-
-
-//sysTick
-    if (SysTick_Config(SystemCoreClock / 1000)) {
-        while (1);  // Capture error
-    }
-
-    init_i2c();
-    init_ssp();
-    init_GPIO();
-
-    //rgb_init();
-    //pca9532_init();
-    //joystick_init();
-    acc_init();
-    light_enable();
-    oled_init();
-    led7seg_init();
-    temp_init(&getTicks);
-
-
-    //rgb_setLeds(0);
-
-    //pca9532_setLeds(65280,0);
-
+    // ---- Speaker ------>
     /*
-     * Assume base board in zero-g position when reading first value.
-     */
-    acc_read(&x, &y, &z);
-    xoff = 0-x;
-    yoff = 0-y;
-    zoff = 64-z;
-
-    /* ---- Speaker ------> */
-
     GPIO_SetDir(2, 1<<0, 1);
     GPIO_SetDir(2, 1<<1, 1);
 
@@ -397,210 +154,273 @@ int main (void) {
     GPIO_ClearValue(0, 1<<27); //LM4811-clk
     GPIO_ClearValue(0, 1<<28); //LM4811-up/dn
     GPIO_ClearValue(2, 1<<13); //LM4811-shutdn
+    */
+    // <---- Speaker ------
 
-    /* <---- Speaker ------ */
+    //PINSEL_CFG_Type PinCfg;
+    //PinCfg.Funcnum = 0;
+    //PinCfg.OpenDrain = 0;
+    //PinCfg.Pinmode = 0;
+    //PinCfg.Portnum = 2;
+    //PinCfg.Pinnum = 10;
+    //PINSEL_ConfigPin(&PinCfg);
+}
 
-    //moveBar(1, dir);
+void pinsel_uart3(void){
+    PINSEL_CFG_Type PinCfg;
+    PinCfg.Funcnum = 2;
+    PinCfg.Pinnum = 0;
+    PinCfg.Portnum = 0;
+    PINSEL_ConfigPin(&PinCfg);
+    PinCfg.Pinnum = 1;
+    PINSEL_ConfigPin(&PinCfg);
+}
+
+static void init_uartWired(void){
+
+    UART_CFG_Type uartCfg;
+    uartCfg.Baud_rate = 115200;
+    uartCfg.Databits = UART_DATABIT_8;
+    uartCfg.Parity = UART_PARITY_NONE;
+    uartCfg.Stopbits = UART_STOPBIT_1;
+
+    pinsel_uart3();
+
+    UART_Init(LPC_UART3, &uartCfg);
+
+    UART_TxCmd(LPC_UART3, ENABLE);
+}
+
+static uint32_t getTicks()
+{
+    return msTicks;
+}
+
+uint8_t numToChar(int num) {
+    if (num < 10)
+        return (uint8_t) (num + 48);
+    if (num > 9)
+        return (uint8_t) (num + 55);
+    else
+        return (uint8_t) num; //stub
+}
+
+void acc_setup() {
+    /*
+     * Assume base board in zero-g position when reading first value.
+     */
+    acc_read(&x, &y, &z);
+    xoff = 0 - x;
+    yoff = 0 - y;
+    zoff = 64 - z;
+}
+
+static void init_all() {
+    init_i2c();
+    init_ssp();
+    init_GPIO();
+
+    init_uartWired();
+
+    rgb_init();
+    acc_init();
+    oled_init();
+    led7seg_init();
+    temp_init(&getTicks);
+
+    light_enable();
+    light_setRange(LIGHT_RANGE_4000);
+    light_setLoThreshold(LIGHT_LOW_WARNING);
+    light_setIrqInCycles(LIGHT_CYCLE_1);
+    light_clearIrqStatus();
+
+    LPC_GPIOINT->IO2IntEnF |= 1<<5; //GPIO interrupt P2.5 for light sensor
+    NVIC_EnableIRQ(EINT3_IRQn); // enable EINT3 interrupt
+
+
+    oled_clearScreen(OLED_COLOR_WHITE);
+}
+
+void EINT3_IRQHandler(void)
+{
+//  int i;
+    // Determine whether GPIO Interrupt P2.5 has occurred
+    if ((LPC_GPIOINT->IO2IntStatF>>5)& 0x1)
+    {
+        printf("LOW LIGHT WARNING\n");
+        LowLightFlag=TRUE;
+        alert=TRUE;
+        light_clearIrqStatus();
+        LPC_GPIOINT->IO2IntClr |= 1<<5;
+    }
+}
+
+int btn1Press() { //SW4
+    return (GPIO_ReadValue(1) >> 31) & 0x01;
+}
+
+int btn2Press() { //SW3
+    return (GPIO_ReadValue(0) >> 4) & 0x01;
+}
+
+/* unable to make this work...yet
+void blink(int color) {
+    Bool toggle=TRUE;
+    uint32_t currTime = getTicks();
+
+    if(getTicks()-currTime>333)
+    {
+        if(toggle)
+        {
+            rgb_setLeds (4+color);
+        }
+        else{
+            rgb_setLeds(4);
+        }
+        toggle=!toggle;
+        currTime = getTicks();
+    }
+}
+*/
+
+int isMoving() {
+    return 1; // stub
+}
+
+void stableMode() {
+    while(currMode==Stable)
+    {
+        oled_clearScreen(OLED_COLOR_BLACK); // clear oled
+        led7seg_setChar(' ', FALSE); // 7seg switch off
+        rgb_setLeds(4); // rgb switch off
+        alert=FALSE; // turn off warnings
+
+        if (!btn1Press()) {
+            currMode=Monitor;
+            printf("GOING MONITOR\n");
+            break;
+        }
+    }
+}
+
+void monitorMode() {
+
+    uint8_t ch = 0;
+
+    uint32_t currTime = getTicks();
+    uint32_t blinkTime = getTicks();
+
+    int a=0,b=0;
+    int lightReading;
+    float tempReading;
+
+    char temp_sensor_value[40];
+    char light_sensor_val[40];
+    char acc_sensor_value[3][40];
+    Bool toggle=FALSE;
+
+    acc_setup();
+
+    LowLightFlag=FALSE;
+    HighTempFlag=FALSE;
+
     oled_clearScreen(OLED_COLOR_WHITE);
 
-    while (1)
+    while (currMode==Monitor)
     {
-
-        /*
-        if (ledNum>=0x00010000) //ledArr rollover, pca9532
-        {
-            ledNum=1;
+        if(tempReading> TEMP_HIGH_WARNING) {
+            alert=TRUE;
+            a=1;
         }
-        */
+        if(LowLightFlag && isMoving()) {
+            alert=TRUE;
+            b=2;
+        }
+
+        if(alert){
+
+                if((getTicks() - blinkTime)>166)
+                {
+                    if(toggle){
+                        rgb_setLeds(4+a+b);
+                    }
+                    else{
+                        rgb_setLeds(4);
+                    }
+                    toggle = !toggle;
+                    blinkTime = getTicks();
+                }
+
+        }
+
+
+        oled_putString(1,1,(uint8_t *)"MONITOR",OLED_COLOR_BLACK,OLED_COLOR_WHITE);
+
+        if (!btn1Press()) {
+            currMode=Stable;
+            printf("GOING STABLE\n");
+            break;
+        }
+
         //conditions
         if (ch==16) ch=0; //char rollover, 7seg
 
-        if(rgbNum>=0x06) rgbNum=4; //RGB rollover, red LED
-
-        if(rgbTogg>=2) rgbTogg=0; //RGB toggle
-
         if((getTicks()-currTime)>1000)
         {
-            //temp sensor
-            char * temp_sensor_value[40];
-            tempReading=temp_read();
-            printf("temp: %u\n", tempReading);
-            sprintf(temp_sensor_value,"Temp: %u",tempReading);
-
-            //accelerometer
-            char * acc_sensor_value[40];
-            acc_read(&x, &y, &z);
-            x = x+xoff;
-            y = y+yoff;
-            z = z+zoff;
-            printf("acc: x:%d y:%d z:%d \n", x, y, z);
-            sprintf(acc_sensor_value,"Acc: x:%d y:%d z:%d", x, y, z);
-
-            //light sensor
-            char * light_sensor_val[40];
-            lightReading = light_read();
-            printf("light: %u\n", lightReading);
-            sprintf(light_sensor_val, "Light: %u" , lightReading);
-            //uint8_t * display = (uint8_t*)"Second Line";
-            //oled_putString(1,0,light_sensor_val,OLED_COLOR_BLACK,OLED_COLOR_WHITE);
-            //oled_putString(1,8,display,OLED_COLOR_BLACK,OLED_COLOR_WHITE);
-
             //7seg
-            led7seg_setChar(ch7seg[ch++], FALSE);
+            led7seg_setChar(numToChar(ch++), FALSE);
 
-            //pca9532
-            //pca9532_setLeds(ledNum,0xffff);
-            //ledNum*=2;
-
-
-            //RGB
-            if (rgbTogg==0)
-            {
-                rgb_setLeds(rgbNum++);
-            }
-            rgbTogg++;
-
+            //temp sensor polling for alert
+            tempReading=temp_read()/10.0;
 
             //Display info on oLED, on '5' 'A' 'F'
             if((ch==6)||(ch==11)||ch==16)
             {
-                oled_putString(1,1,temp_sensor_value,OLED_COLOR_BLACK,OLED_COLOR_WHITE);
-                oled_putString(1,9,light_sensor_val,OLED_COLOR_BLACK,OLED_COLOR_WHITE);
-                oled_putString(1,17,acc_sensor_value,OLED_COLOR_BLACK,OLED_COLOR_WHITE);
+                //temp sensor
+                printf("temp: %.1f\n", tempReading);
+                sprintf(temp_sensor_value,"Temp: %.1f",tempReading);
+
+                //light sensor
+                lightReading = light_read();
+                printf("light: %d\n", lightReading);
+                sprintf(light_sensor_val, "Light: %d  " , lightReading);
+
+                //accelerometer
+                acc_read(&x, &y, &z);
+                x = x+xoff;
+                y = y+yoff;
+                z = z+zoff;
+                printf("acc: x:%d y:%d z:%d \n", x, y, z);
+                sprintf(acc_sensor_value[0],"Acc:   x:%d  ", x);
+                sprintf(acc_sensor_value[1],"     y:%d  ", y);
+                sprintf(acc_sensor_value[2],"     z:%d  ", z);
+                oled_putString(1,9,(uint8_t *)temp_sensor_value,OLED_COLOR_BLACK,OLED_COLOR_WHITE);
+                oled_putString(1,17,(uint8_t *)light_sensor_val,OLED_COLOR_BLACK,OLED_COLOR_WHITE);
+                oled_putString(1,25,(uint8_t *)acc_sensor_value[0],OLED_COLOR_BLACK,OLED_COLOR_WHITE);
+                oled_putString(1,33,(uint8_t *)acc_sensor_value[1],OLED_COLOR_BLACK,OLED_COLOR_WHITE);
+                oled_putString(1,41,(uint8_t *)acc_sensor_value[2],OLED_COLOR_BLACK,OLED_COLOR_WHITE);
             }
 
             //reconfig currTime
             currTime=getTicks();
         }
 
-        btn2 = (GPIO_ReadValue(0) >> 4) & 0x01;
+    }
+}
 
+int main (void) {
 
-        if((btn2 == 0) && ((getTicks()-btn2_time)>200))
-        {
-            tone_toggle=~tone_toggle;
-            btn2_time=getTicks();
-        }
+//sysTick
+    if (SysTick_Config(SystemCoreClock / 1000)) {
+        while (1);  // Capture error
+    }
 
-        if(tone_toggle)
-        {
-            playNote(notes[14],8);
-            /*
-            NOTE_PIN_HIGH();
-            Timer0_us_Wait(1432 / 2);
+    init_all();
 
-            NOTE_PIN_LOW();
-            Timer0_us_Wait(1432 / 2);
-            */
-        }
-        else
-        {
-            NOTE_PIN_LOW();
-        }
-
-
-        btn1 = (GPIO_ReadValue(1) >> 31) & 0x01;
-
-        if (btn1 == 0)
-        {
-            playSong(song);
-
-        }
-
-        /* ####### Accelerometer and LEDs  ###### */
-        /* # */
-
-        /*
-        if((msTicks-acc_time)>1000)
-        {
-            acc_read(&x, &y, &z);
-            x = x+xoff;
-            y = y+yoff;
-            z = z+zoff;
-            printf("acc: x:%d y:%d z:%d \n", x, y, z);
-            acc_time=msTicks;
-        }
-        */
-        /*
-        if (y < 0) {
-            dir = 1;
-            y = -y;
-        }
-        else {
-            dir = -1;
-        }
-
-        if (y > 1 && wait++ > (40 / (1 + (y/10)))) {
-            //moveBar(1, dir);
-            wait = 0;
-        }
-        */
-
-
-        /* # */
-        /* ############## Light Sensor #################### */
-        /*
-        if((msTicks-lightSensor_time)>1000)
-        {
-            char sensor_val[40];
-            lightReading = light_read();
-            printf("light: %u\n", lightReading);
-            sprintf(sensor_val, "Light: %u" , lightReading);
-            lightSensor_time=msTicks;
-            //uint8_t * display = (uint8_t*)"UVUVWEVWEVWE ONYETENYEVWE UGWEMUBWEM OSSAS";
-            oled_putString(0,0,sensor_val,OLED_COLOR_BLACK,OLED_COLOR_WHITE);
-        }
-        */
-        /* # */
-        /* ############################################# */
-
-
-        /* ####### Joystick and OLED  ###### */
-        /* # */
-
-        //uint8_t * display = (uint8_t*)"UVUVWEVWEVWE ONYETENYEVWE UGWEMUBWEM OSSAS";
-        //oled_putString(0,0,display,OLED_COLOR_BLACK,OLED_COLOR_WHITE);
-
-        /*
-        state = joystick_read();
-        if (state != 0)
-            drawOled(state);
-        */
-
-        /* #rgb_LED */
-        /* ############################################# */
-
-
-
-        /* ############ Trimpot and RGB LED  ########### */
-        /* # */
-
-
-
-
-        /*
-        if((msTicks-led7seg_time)>1000)
-        {
-            led7seg_setChar(ch, FALSE);
-            ch++;
-            led7seg_time=msTicks;
-        }
-
-        if((msTicks-ledArr_time)>1000)
-        {
-            pca9532_setLeds(ledNum,0xffff);
-            ledNum*=2;
-            ledArr_time=msTicks;
-        }
-
-        if((msTicks-ledRGB_time)>2000)
-        {
-            rgb_setLeds(rgbNum++);
-            ledRGB_time=msTicks;
-        }
-        */
-
-        Timer0_Wait(1);
+    while (1)
+    {
+        if(currMode==Monitor) monitorMode();
+        if(currMode==Stable) stableMode();
     }
 
 
