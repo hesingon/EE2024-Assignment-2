@@ -14,6 +14,7 @@
 #include "lpc17xx_uart.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 
 #include "led7seg.h"
 #include "acc.h"
@@ -27,13 +28,12 @@ typedef enum {
     Stable,
 } Mode;
 
-Mode currMode=Monitor;
+Mode currMode=Stable;
 
 static const int LIGHT_LOW_WARNING = 50;
 static const float TEMP_HIGH_WARNING = 25.0;
+static const int MOVEMENT_THRESHOLD = 4;
 
-Bool LowLightFlag;
-Bool HighTempFlag;
 Bool alert;
 
 int32_t xoff = 0;
@@ -43,6 +43,13 @@ int32_t zoff = 0;
 int8_t x = 0;
 int8_t y = 0;
 int8_t z = 0;
+
+int8_t xPrev = 0;
+int8_t yPrev = 0;
+int8_t zPrev = 0;
+
+int lightReading;
+float tempReading;
 
 volatile uint32_t msTicks; // counter for 1ms SysTicks
 
@@ -213,6 +220,17 @@ void acc_setup() {
     xoff = 0 - x;
     yoff = 0 - y;
     zoff = 64 - z;
+    xPrev=x;
+    yPrev=y;
+    zPrev=z;
+    acc_read(&x,&y,&z);
+    x = x+xoff;
+    y = y+yoff;
+    z = z+zoff;
+    xPrev=x;
+    yPrev=y;
+    zPrev=z;
+
 }
 
 static void init_all() {
@@ -248,8 +266,7 @@ void EINT3_IRQHandler(void)
     if ((LPC_GPIOINT->IO2IntStatF>>5)& 0x1)
     {
         printf("LOW LIGHT WARNING\n");
-        LowLightFlag=TRUE;
-        alert=TRUE;
+        lightReading=light_read();
         light_clearIrqStatus();
         LPC_GPIOINT->IO2IntClr |= 1<<5;
     }
@@ -283,8 +300,21 @@ void blink(int color) {
 }
 */
 
+void acc_read_improved(int8_t *x, int8_t *y, int8_t *z) {
+    xPrev=*x;
+    yPrev=*y;
+    zPrev=*z;
+    acc_read(x,y,z);
+    *x = *x+xoff;
+    *y = *y+yoff;
+    *z = *z+zoff;
+}
+
 int isMoving() {
-    return 1; // stub
+    return(abs(xPrev-x)/MOVEMENT_THRESHOLD ||
+            abs(yPrev-y)/MOVEMENT_THRESHOLD ||
+            abs(zPrev-z)/MOVEMENT_THRESHOLD);
+    //return 1; // stub
 }
 
 void stableMode() {
@@ -305,24 +335,21 @@ void stableMode() {
 
 void monitorMode() {
 
-    uint8_t ch = 0;
+    uint8_t ch = 16;
 
     uint32_t currTime = getTicks();
     uint32_t blinkTime = getTicks();
+    //uint32_t sensorTime = getTicks();
 
     int a=0,b=0;
-    int lightReading;
-    float tempReading;
 
     char temp_sensor_value[40];
     char light_sensor_val[40];
     char acc_sensor_value[3][40];
     Bool toggle=FALSE;
+    Bool displayed=FALSE;
 
     acc_setup();
-
-    LowLightFlag=FALSE;
-    HighTempFlag=FALSE;
 
     oled_clearScreen(OLED_COLOR_WHITE);
 
@@ -332,24 +359,23 @@ void monitorMode() {
             alert=TRUE;
             a=1;
         }
-        if(LowLightFlag && isMoving()) {
+        if((lightReading< LIGHT_LOW_WARNING) && isMoving()) {
             alert=TRUE;
             b=2;
         }
 
         if(alert){
-
-                if((getTicks() - blinkTime)>166)
-                {
-                    if(toggle){
-                        rgb_setLeds(4+a+b);
-                    }
-                    else{
-                        rgb_setLeds(4);
-                    }
-                    toggle = !toggle;
-                    blinkTime = getTicks();
+            if((getTicks() - blinkTime)>166)
+            {
+                if(toggle){
+                    rgb_setLeds(4+a+b);
                 }
+                else{
+                    rgb_setLeds(4);
+                }
+                toggle = !toggle;
+                blinkTime = getTicks();
+            }
 
         }
 
@@ -362,45 +388,43 @@ void monitorMode() {
             break;
         }
 
+        //Display info on oLED, on '5' 'A' 'F'
+        if(((ch==6)||(ch==11)||(ch==16))&&(!displayed)) {
+            //temp sensor
+            tempReading=temp_read()/10.0;
+            //printf("temp: %.1f\n", tempReading);
+            sprintf(temp_sensor_value,"Temp: %.1f",tempReading);
+
+            //light sensor
+            lightReading = light_read();
+            //printf("light: %d\n", lightReading);
+            sprintf(light_sensor_val, "Light: %d  " , lightReading);
+
+            //accelerometer
+            acc_read_improved(&x, &y, &z);
+
+            //printf("acc: x:%d y:%d z:%d \n", x, y, z);
+            sprintf(acc_sensor_value[0],"Acc:   x:%d  ", x);
+            sprintf(acc_sensor_value[1],"     y:%d  ", y);
+            sprintf(acc_sensor_value[2],"     z:%d  ", z);
+
+            oled_putString(1,9,(uint8_t *)temp_sensor_value,OLED_COLOR_BLACK,OLED_COLOR_WHITE);
+            oled_putString(1,17,(uint8_t *)light_sensor_val,OLED_COLOR_BLACK,OLED_COLOR_WHITE);
+            oled_putString(1,25,(uint8_t *)acc_sensor_value[0],OLED_COLOR_BLACK,OLED_COLOR_WHITE);
+            oled_putString(1,33,(uint8_t *)acc_sensor_value[1],OLED_COLOR_BLACK,OLED_COLOR_WHITE);
+            oled_putString(1,41,(uint8_t *)acc_sensor_value[2],OLED_COLOR_BLACK,OLED_COLOR_WHITE);
+
+            displayed=TRUE;
+        }
         //conditions
         if (ch==16) ch=0; //char rollover, 7seg
 
         if((getTicks()-currTime)>1000)
         {
+            //resets display token
+            displayed=FALSE;
             //7seg
             led7seg_setChar(numToChar(ch++), FALSE);
-
-            //temp sensor polling for alert
-            tempReading=temp_read()/10.0;
-
-            //Display info on oLED, on '5' 'A' 'F'
-            if((ch==6)||(ch==11)||ch==16)
-            {
-                //temp sensor
-                printf("temp: %.1f\n", tempReading);
-                sprintf(temp_sensor_value,"Temp: %.1f",tempReading);
-
-                //light sensor
-                lightReading = light_read();
-                printf("light: %d\n", lightReading);
-                sprintf(light_sensor_val, "Light: %d  " , lightReading);
-
-                //accelerometer
-                acc_read(&x, &y, &z);
-                x = x+xoff;
-                y = y+yoff;
-                z = z+zoff;
-                printf("acc: x:%d y:%d z:%d \n", x, y, z);
-                sprintf(acc_sensor_value[0],"Acc:   x:%d  ", x);
-                sprintf(acc_sensor_value[1],"     y:%d  ", y);
-                sprintf(acc_sensor_value[2],"     z:%d  ", z);
-                oled_putString(1,9,(uint8_t *)temp_sensor_value,OLED_COLOR_BLACK,OLED_COLOR_WHITE);
-                oled_putString(1,17,(uint8_t *)light_sensor_val,OLED_COLOR_BLACK,OLED_COLOR_WHITE);
-                oled_putString(1,25,(uint8_t *)acc_sensor_value[0],OLED_COLOR_BLACK,OLED_COLOR_WHITE);
-                oled_putString(1,33,(uint8_t *)acc_sensor_value[1],OLED_COLOR_BLACK,OLED_COLOR_WHITE);
-                oled_putString(1,41,(uint8_t *)acc_sensor_value[2],OLED_COLOR_BLACK,OLED_COLOR_WHITE);
-            }
-
             //reconfig currTime
             currTime=getTicks();
         }
