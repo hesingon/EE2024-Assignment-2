@@ -23,6 +23,7 @@
 #include "rgb.h"
 #include "light.h"
 #include "temp.h"
+#include "joystick.h"
 
 typedef enum {
     Monitor, Stable,
@@ -34,6 +35,8 @@ static const int LIGHT_LOW_WARNING = 50;
 static const float TEMP_HIGH_WARNING = 45.0;
 static const int MOVEMENT_THRESHOLD = 4;
 static const int DEBOUNCE_TIME = 500;
+float temp_adjust = 0.0;
+int light_adjust = 0;
 
 Bool alert;
 
@@ -131,6 +134,12 @@ static void init_GPIO(void) {
     PINSEL_ConfigPin(&PinCfg); // SW3
     PinCfg.Pinnum = 2;
     PINSEL_ConfigPin(&PinCfg); // Temp sensor
+    PinCfg.Pinnum = 15;
+    PINSEL_ConfigPin(&PinCfg); // joystick
+    PinCfg.Pinnum = 16;
+    PINSEL_ConfigPin(&PinCfg); // joystick
+    PinCfg.Pinnum = 17;
+    PINSEL_ConfigPin(&PinCfg); // joystick
     PinCfg.Pinmode = 0;
     PinCfg.Portnum = 0;
     PinCfg.Pinnum = 26;
@@ -144,6 +153,10 @@ static void init_GPIO(void) {
     PINSEL_ConfigPin(&PinCfg); // RGB G
     PinCfg.Pinnum = 5;
     PINSEL_ConfigPin(&PinCfg); // Temp sensor interrupt pin
+    PinCfg.Pinnum = 3;
+    PINSEL_ConfigPin(&PinCfg); //joystick
+    PinCfg.Pinnum = 4;
+    PINSEL_ConfigPin(&PinCfg); //joystick
 
     GPIO_SetDir(2, (1 << 0), 1);
     GPIO_SetDir(0, (1 << 26), 1);
@@ -235,6 +248,38 @@ static void init_all() {
     oled_clearScreen(OLED_COLOR_WHITE);
 }
 
+static void drawOled(uint8_t joyState)
+{
+    static int wait = 0;
+
+    if ((joyState & JOYSTICK_CENTER) != 0) {
+        temp_adjust = 0.0;
+        light_adjust = 0;
+        return;
+    }
+
+    if (wait++ < 2)
+        return;
+
+    wait = 0;
+
+    if ((joyState & JOYSTICK_UP) != 0 && temp_adjust < 20.0 ) {
+        temp_adjust += 0.1;
+    }
+
+    if ((joyState & JOYSTICK_DOWN) != 0 && temp_adjust > -20.0 ) {
+        temp_adjust -= 0.1;
+    }
+
+    if ((joyState & JOYSTICK_RIGHT) != 0 && light_adjust < 20) {
+        light_adjust += 1;
+    }
+
+    if ((joyState & JOYSTICK_LEFT) != 0 && light_adjust > -20) {
+        light_adjust -= 1;
+    }
+}
+
 void EINT3_IRQHandler(void) {
 //  int i;
     // Determine whether GPIO Interrupt P2.5 has occurred
@@ -301,15 +346,18 @@ void monitorMode() {
 
     uint32_t currTime = getTicks();
     uint32_t blinkTime = getTicks();
+    uint8_t state = 0;
 
     int a = 0, b = 0;
 
     char temp_sensor_value[40];
     char light_sensor_val[40];
     char acc_sensor_value[3][40];
+    char thresholds[40];
     Bool toggle = FALSE;
     Bool displayed = FALSE;
     char monitorMsg[40]="Entering MONITOR mode.";
+
 
     acc_setup();
 
@@ -322,11 +370,11 @@ void monitorMode() {
     acc_read_improved(&x, &y, &z);
 
     while (currMode == Monitor) {
-        if (tempReading > TEMP_HIGH_WARNING) {
+        if (tempReading > TEMP_HIGH_WARNING + temp_adjust) {
             alert = TRUE;
             a = 1;
         }
-        if ((lightReading < LIGHT_LOW_WARNING) && isMoving()) {
+        if ((lightReading < LIGHT_LOW_WARNING + ligh_adjust) && isMoving()) {
             alert = TRUE;
             b = 2;
         }
@@ -341,12 +389,10 @@ void monitorMode() {
                 toggle = !toggle;
                 blinkTime = getTicks();
             }
-
         }
 
         oled_putString(1, 1, (uint8_t *) "MONITOR", OLED_COLOR_BLACK,
                 OLED_COLOR_WHITE);
-
 
         if (!btn1Press() && ((getTicks() - lastpress) > DEBOUNCE_TIME)) {
             currMode = Stable;
@@ -388,6 +434,12 @@ void monitorMode() {
             displayed = TRUE;
         }
 
+        //Joystick
+        state = joystick_read();
+        if (state != 0)
+            drawOled(state);
+
+
         char msgDisplay[99];
         char msgFire[40];
         char msgDarkMovement[40];
@@ -405,7 +457,7 @@ void monitorMode() {
                 UART_send_improved(msgDarkMovement);
             }
 
-            sprintf(msgDisplay, "%03d_-_T%03.1f_L%4d_AX%02d_AY%02d_AZ%02d",
+            sprintf(msgDisplay, "%03d_-_T%03.1f_L%04d_AX%02d_AY%02d_AZ%02d",
                                     uart_count++, tempReading, lightReading, x, y, z);
             printf(msgDisplay);
             UART_send_improved(msgDisplay);
@@ -417,6 +469,9 @@ void monitorMode() {
             displayed = FALSE;
             //7seg
             led7seg_setChar(numToChar(ch++), FALSE);
+            sprintf(thresholds, "T/L: %.1f /%3d", TEMP_HIGH_WARNING + temp_adjust, LIGHT_LOW_WARNING + light_adjust);
+            oled_putString(1, 51, (uint8_t *) thresholds, OLED_COLOR_BLACK, OLED_COLOR_WHITE);
+
             //reconfig currTime
             currTime = getTicks();
         }
