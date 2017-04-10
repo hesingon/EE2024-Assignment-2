@@ -36,25 +36,31 @@ static const float TEMP_HIGH_WARNING = 45.0;
 static const int MOVEMENT_THRESHOLD = 4;
 static const int DEBOUNCE_TIME = 500;
 static const int JOY_DEBOUNCE_TIME = 200;
-int moveCount = 0;
-float temp_adjust = 0.0;
-int light_adjust = 0;
 
-Bool alert;
+int moveCount = 0; // motion token
+float temp_adjust = 0.0; // temp threshold adjust
+int light_adjust = 0; // light threshold adjust
 
-uint16_t uart_count = 0;
+Bool alert; // for blinky warnings
 
+uint16_t uart_count = 0; // for uart message
+
+// acc offsets
 int32_t xoff = 0;
 int32_t yoff = 0;
 int32_t zoff = 0;
 
+// acc values
 int8_t x = 0;
 int8_t y = 0;
 int8_t z = 0;
 
+// acc old values
 int8_t xPrev = 0;
 int8_t yPrev = 0;
 int8_t zPrev = 0;
+
+// button debouncing variables
 uint32_t lastPress = 0;
 uint32_t joyPress = 0;
 
@@ -321,8 +327,10 @@ void acc_read_improved(int8_t *x, int8_t *y, int8_t *z) {
 
 Bool detectMotion() {
 
+	//update acc values
     acc_read_improved(&x, &y, &z);
 
+    // check motion
     Bool moved = abs(xPrev - x) / MOVEMENT_THRESHOLD
             || abs(yPrev - y) / MOVEMENT_THRESHOLD
             || abs(zPrev - z) / MOVEMENT_THRESHOLD;
@@ -332,6 +340,7 @@ Bool detectMotion() {
             moveCount++;
             return FALSE;
         } else {
+        	// motion detected more than 5s
             return TRUE;
         }
     } else {
@@ -362,19 +371,22 @@ void monitorMode() {
 
 uint8_t ch = 0;
 
-uint32_t currTime = getTicks();
-uint32_t blinkTime = getTicks();
-uint8_t state = 0;
+uint32_t currTime = getTicks(); // for 7seg & motionDetect()
+uint32_t blinkTime = getTicks(); // for alert
+uint8_t state = 0; // for joystick
 
-int redBlink = 0, bluBlink = 0;
+int redBlink = 0, bluBlink = 0; // for rgb during alert
 
 char temp_sensor_value[40];
 char light_sensor_val[40];
 char acc_sensor_value[3][40];
-char thresholds[40];
-Bool toggle = FALSE;
-Bool displayed = FALSE;
+char light_temp_thresholds[40];
+Bool rgbToggle = FALSE;
+Bool infoDisplayed = FALSE;
 char monitorMsg[40] = "Entering MONITOR mode.";
+char msgDisplay[99];
+char msgFire[40];
+char msgDarkMovement[40];
 
 acc_setup();
 
@@ -394,12 +406,12 @@ while (currMode == Monitor) {
 
     if (alert) {
         if ((getTicks() - blinkTime) > 166) {
-            if (toggle) {
+            if (rgbToggle) {
                 rgb_setLeds(4 + redBlink + bluBlink);
             } else {
                 rgb_setLeds(4);
             }
-            toggle = !toggle;
+            rgbToggle = !rgbToggle;
             blinkTime = getTicks();
         }
     }
@@ -414,21 +426,18 @@ while (currMode == Monitor) {
     }
 
     //Display info on oLED, on '5' 'A' 'F'
-    if (((ch == 6) || (ch == 11) || (ch == 16)) && (!displayed)) {
+    if (((ch == 6) || (ch == 11) || (ch == 16)) && (!infoDisplayed)) {
         //temp sensor
         tempReading = temp_read() / 10.0;
-        //printf("temp: %.1f\n", tempReading);
         sprintf(temp_sensor_value, "Temp: %.1f", tempReading);
 
         //light sensor
         lightReading = light_read();
-        //printf("light: %d\n", lightReading);
         sprintf(light_sensor_val, "Light: %d  ", lightReading);
 
         //accelerometer
         acc_read_improved(&x, &y, &z);
 
-        //printf("acc: x:%d y:%d z:%d \n", x, y, z);
         sprintf(acc_sensor_value[0], "Acc: x:%d  ", x);
         sprintf(acc_sensor_value[1], "     y:%d  ", y);
         sprintf(acc_sensor_value[2], "     z:%d  ", z);
@@ -444,7 +453,7 @@ while (currMode == Monitor) {
         oled_putString(1, 41, (uint8_t *) acc_sensor_value[2], OLED_COLOR_BLACK,
                 OLED_COLOR_WHITE);
 
-        displayed = TRUE;
+        infoDisplayed = TRUE;
     }
 
     //Joystick
@@ -454,9 +463,6 @@ while (currMode == Monitor) {
         joyPress=getTicks();
     }
 
-    char msgDisplay[99];
-    char msgFire[40];
-    char msgDarkMovement[40];
     //conditions
     //Counter reaches number F, UART sends message.
     if (ch == 16) {
@@ -488,12 +494,12 @@ while (currMode == Monitor) {
         }
 
         //resets display token
-        displayed = FALSE;
+        infoDisplayed = FALSE;
         //7seg
         led7seg_setChar(numToChar(ch++), FALSE);
-        sprintf(thresholds, "T/L: %.1f /%3d", TEMP_HIGH_WARNING + temp_adjust,
+        sprintf(light_temp_thresholds, "T/L: %.1f /%3d", TEMP_HIGH_WARNING + temp_adjust,
                 LIGHT_LOW_WARNING + light_adjust);
-        oled_putString(1, 51, (uint8_t *) thresholds, OLED_COLOR_BLACK,
+        oled_putString(1, 51, (uint8_t *) light_temp_thresholds, OLED_COLOR_BLACK,
                 OLED_COLOR_WHITE);
 
         //reconfig currTime
@@ -529,4 +535,3 @@ void check_failed(uint8_t *file, uint32_t line) {
 while (1)
     ;
 }
-
