@@ -35,6 +35,7 @@ static const int LIGHT_LOW_WARNING = 50;
 static const float TEMP_HIGH_WARNING = 45.0;
 static const int MOVEMENT_THRESHOLD = 4;
 static const int DEBOUNCE_TIME = 500;
+static const int JOY_DEBOUNCE_TIME = 200;
 float temp_adjust = 0.0;
 int light_adjust = 0;
 
@@ -53,7 +54,8 @@ int8_t z = 0;
 int8_t xPrev = 0;
 int8_t yPrev = 0;
 int8_t zPrev = 0;
-uint32_t lastpress = 0;
+uint32_t lastPress = 0;
+uint32_t joyPress = 0;
 
 int lightReading;
 float tempReading;
@@ -248,9 +250,8 @@ static void init_all() {
     oled_clearScreen(OLED_COLOR_WHITE);
 }
 
-static void drawOled(uint8_t joyState)
-{
-    static int wait = 0;
+static void drawOled(uint8_t joyState) {
+    //static int wait = 0;
 
     if ((joyState & JOYSTICK_CENTER) != 0) {
         temp_adjust = 0.0;
@@ -258,16 +259,16 @@ static void drawOled(uint8_t joyState)
         return;
     }
 
-    if (wait++ < 2)
-        return;
+    //if (wait++ < 2)
+        //return;
 
-    wait = 0;
+    //wait = 0;
 
-    if ((joyState & JOYSTICK_UP) != 0 && temp_adjust < 20.0 ) {
+    if ((joyState & JOYSTICK_UP) != 0 && temp_adjust < 20.0) {
         temp_adjust += 0.1;
     }
 
-    if ((joyState & JOYSTICK_DOWN) != 0 && temp_adjust > -20.0 ) {
+    if ((joyState & JOYSTICK_DOWN) != 0 && temp_adjust > -20.0) {
         temp_adjust -= 0.1;
     }
 
@@ -300,11 +301,11 @@ int btn2Press() { //SW3
 }
 
 void UART_send_improved(char* msg) {
-    int len =strlen(msg);
-    msg[len++]='\n';
-    msg[len++]='\r';
-    msg[len]=0;
-    UART_Send(LPC_UART3, (uint8_t *)msg, (uint32_t)len, BLOCKING);
+    int len = strlen(msg);
+    msg[len++] = '\n';
+    msg[len++] = '\r';
+    msg[len] = 0;
+    UART_Send(LPC_UART3, (uint8_t *) msg, (uint32_t) len, BLOCKING);
 }
 
 void acc_read_improved(int8_t *x, int8_t *y, int8_t *z) {
@@ -317,192 +318,221 @@ void acc_read_improved(int8_t *x, int8_t *y, int8_t *z) {
     *z = *z + zoff;
 }
 
-int isMoving() {
-    return (abs(xPrev - x) / MOVEMENT_THRESHOLD
+Bool detectMotion() {
+
+
+    static int moveCount = 0;
+
+    acc_read_improved(&x, &y, &z);
+
+    Bool moved = abs(xPrev - x) / MOVEMENT_THRESHOLD
             || abs(yPrev - y) / MOVEMENT_THRESHOLD
-            || abs(zPrev - z) / MOVEMENT_THRESHOLD);
-    //return 1; // stub
+            || abs(zPrev - z) / MOVEMENT_THRESHOLD;
+
+    if (moved != 0) {
+        //printf("motion Detected\n");
+        if (moveCount < 5){
+            moveCount++;
+            //printf("moveCount increment moveCount: %d\n", moveCount);
+            return FALSE;
+        } else {
+            //printf("moveCount maxed, alert sent, moveCount: %d\n", moveCount);
+            return TRUE;
+        }
+    } else {
+        moveCount = 0;
+        //printf("no motion Detected moveCount: %d\n", moveCount);
+        return FALSE;
+    }
 }
+
 
 void stableMode() {
 
-    while (currMode == Stable) {
-        oled_clearScreen(OLED_COLOR_BLACK); // clear oled
-        led7seg_setChar(' ', FALSE); // 7seg switch off
-        rgb_setLeds(4); // rgb switch off
-        alert = FALSE; // turn off warnings
+while (currMode == Stable) {
+    oled_clearScreen(OLED_COLOR_BLACK); // clear oled
+    led7seg_setChar(' ', FALSE); // 7seg switch off
+    rgb_setLeds(4); // rgb switch off
+    alert = FALSE; // turn off warnings
 
-        if (!btn1Press() && ((getTicks() - lastpress) > DEBOUNCE_TIME)) {
-            currMode = Monitor;
-            lastpress = getTicks();
-            break;
-        }
+    if (!btn1Press() && ((getTicks() - lastPress) > DEBOUNCE_TIME)) {
+        currMode = Monitor;
+        lastPress = getTicks();
+        break;
     }
+}
 }
 
 void monitorMode() {
 
-    uint8_t ch = 0;
+uint8_t ch = 0;
 
-    uint32_t currTime = getTicks();
-    uint32_t blinkTime = getTicks();
-    uint8_t state = 0;
+uint32_t currTime = getTicks();
+uint32_t blinkTime = getTicks();
+uint8_t state = 0;
 
-    int a = 0, b = 0;
+int redBlink = 0, bluBlink = 0;
 
-    char temp_sensor_value[40];
-    char light_sensor_val[40];
-    char acc_sensor_value[3][40];
-    char thresholds[40];
-    Bool toggle = FALSE;
-    Bool displayed = FALSE;
-    char monitorMsg[40]="Entering MONITOR mode.";
+char temp_sensor_value[40];
+char light_sensor_val[40];
+char acc_sensor_value[3][40];
+char thresholds[40];
+Bool toggle = FALSE;
+Bool displayed = FALSE;
+char monitorMsg[40] = "Entering MONITOR mode.";
+
+acc_setup();
+
+oled_clearScreen(OLED_COLOR_WHITE);
+
+UART_send_improved(monitorMsg);
+
+tempReading = temp_read() / 10.0;
+lightReading = light_read();
+acc_read_improved(&x, &y, &z);
+
+while (currMode == Monitor) {
+    if ((!redBlink) && (tempReading > TEMP_HIGH_WARNING + temp_adjust)) {
+        alert = TRUE;
+        redBlink = RGB_RED;
+    }
 
 
-    acc_setup();
-
-    oled_clearScreen(OLED_COLOR_WHITE);
-
-    UART_send_improved(monitorMsg);
-
-    tempReading = temp_read() / 10.0;
-    lightReading = light_read();
-    acc_read_improved(&x, &y, &z);
-
-    while (currMode == Monitor) {
-        if (tempReading > TEMP_HIGH_WARNING + temp_adjust) {
-            alert = TRUE;
-            a = 1;
-        }
-        if ((lightReading < LIGHT_LOW_WARNING + ligh_adjust) && isMoving()) {
-            alert = TRUE;
-            b = 2;
-        }
-
-        if (alert) {
-            if ((getTicks() - blinkTime) > 166) {
-                if (toggle) {
-                    rgb_setLeds(4 + a + b);
-                } else {
-                    rgb_setLeds(4);
-                }
-                toggle = !toggle;
-                blinkTime = getTicks();
+    if (alert) {
+        if ((getTicks() - blinkTime) > 166) {
+            if (toggle) {
+                rgb_setLeds(4 + redBlink + bluBlink);
+            } else {
+                rgb_setLeds(4);
             }
-        }
-
-        oled_putString(1, 1, (uint8_t *) "MONITOR", OLED_COLOR_BLACK,
-                OLED_COLOR_WHITE);
-
-        if (!btn1Press() && ((getTicks() - lastpress) > DEBOUNCE_TIME)) {
-            currMode = Stable;
-            lastpress = getTicks();
-            break;
-        }
-
-        //Display info on oLED, on '5' 'A' 'F'
-        if (((ch == 6) || (ch == 11) || (ch == 16)) && (!displayed)) {
-            //temp sensor
-            tempReading = temp_read() / 10.0;
-            //printf("temp: %.1f\n", tempReading);
-            sprintf(temp_sensor_value, "Temp: %.1f", tempReading);
-
-            //light sensor
-            lightReading = light_read();
-            //printf("light: %d\n", lightReading);
-            sprintf(light_sensor_val, "Light: %d  ", lightReading);
-
-            //accelerometer
-            acc_read_improved(&x, &y, &z);
-
-            //printf("acc: x:%d y:%d z:%d \n", x, y, z);
-            sprintf(acc_sensor_value[0], "Acc: x:%d  ", x);
-            sprintf(acc_sensor_value[1], "     y:%d  ", y);
-            sprintf(acc_sensor_value[2], "     z:%d  ", z);
-
-            oled_putString(1, 9, (uint8_t *) temp_sensor_value,
-                    OLED_COLOR_BLACK, OLED_COLOR_WHITE);
-            oled_putString(1, 17, (uint8_t *) light_sensor_val,
-                    OLED_COLOR_BLACK, OLED_COLOR_WHITE);
-            oled_putString(1, 25, (uint8_t *) acc_sensor_value[0],
-                    OLED_COLOR_BLACK, OLED_COLOR_WHITE);
-            oled_putString(1, 33, (uint8_t *) acc_sensor_value[1],
-                    OLED_COLOR_BLACK, OLED_COLOR_WHITE);
-            oled_putString(1, 41, (uint8_t *) acc_sensor_value[2],
-                    OLED_COLOR_BLACK, OLED_COLOR_WHITE);
-
-            displayed = TRUE;
-        }
-
-        //Joystick
-        state = joystick_read();
-        if (state != 0)
-            drawOled(state);
-
-
-        char msgDisplay[99];
-        char msgFire[40];
-        char msgDarkMovement[40];
-        //conditions
-        //Counter reaches number F, UART sends message.
-        if (ch == 16) {
-            ch = 0; //char rollover, 7seg
-
-            if (a == 1) {
-                sprintf(msgFire, "Fire was Detected.");
-                UART_send_improved(msgFire);
-            }
-            if (b == 2){
-                sprintf(msgDarkMovement, "Movement in darkness was Detected.");
-                UART_send_improved(msgDarkMovement);
-            }
-
-            sprintf(msgDisplay, "%03d_-_T%03.1f_L%04d_AX%02d_AY%02d_AZ%02d",
-                                    uart_count++, tempReading, lightReading, x, y, z);
-            printf(msgDisplay);
-            UART_send_improved(msgDisplay);
-
-        }
-
-        if ((getTicks() - currTime) > 1000) {
-            //resets display token
-            displayed = FALSE;
-            //7seg
-            led7seg_setChar(numToChar(ch++), FALSE);
-            sprintf(thresholds, "T/L: %.1f /%3d", TEMP_HIGH_WARNING + temp_adjust, LIGHT_LOW_WARNING + light_adjust);
-            oled_putString(1, 51, (uint8_t *) thresholds, OLED_COLOR_BLACK, OLED_COLOR_WHITE);
-
-            //reconfig currTime
-            currTime = getTicks();
+            toggle = !toggle;
+            blinkTime = getTicks();
         }
     }
+
+    oled_putString(1, 1, (uint8_t *) "MONITOR", OLED_COLOR_BLACK,
+            OLED_COLOR_WHITE);
+
+    if (!btn1Press() && ((getTicks() - lastPress) > DEBOUNCE_TIME)) {
+        currMode = Stable;
+        lastPress = getTicks();
+        break;
+    }
+
+    //Display info on oLED, on '5' 'A' 'F'
+    if (((ch == 6) || (ch == 11) || (ch == 16)) && (!displayed)) {
+        //temp sensor
+        tempReading = temp_read() / 10.0;
+        //printf("temp: %.1f\n", tempReading);
+        sprintf(temp_sensor_value, "Temp: %.1f", tempReading);
+
+        //light sensor
+        lightReading = light_read();
+        //printf("light: %d\n", lightReading);
+        sprintf(light_sensor_val, "Light: %d  ", lightReading);
+
+        //accelerometer
+        acc_read_improved(&x, &y, &z);
+
+        //printf("acc: x:%d y:%d z:%d \n", x, y, z);
+        sprintf(acc_sensor_value[0], "Acc: x:%d  ", x);
+        sprintf(acc_sensor_value[1], "     y:%d  ", y);
+        sprintf(acc_sensor_value[2], "     z:%d  ", z);
+
+        oled_putString(1, 9, (uint8_t *) temp_sensor_value, OLED_COLOR_BLACK,
+                OLED_COLOR_WHITE);
+        oled_putString(1, 17, (uint8_t *) light_sensor_val, OLED_COLOR_BLACK,
+                OLED_COLOR_WHITE);
+        oled_putString(1, 25, (uint8_t *) acc_sensor_value[0], OLED_COLOR_BLACK,
+                OLED_COLOR_WHITE);
+        oled_putString(1, 33, (uint8_t *) acc_sensor_value[1], OLED_COLOR_BLACK,
+                OLED_COLOR_WHITE);
+        oled_putString(1, 41, (uint8_t *) acc_sensor_value[2], OLED_COLOR_BLACK,
+                OLED_COLOR_WHITE);
+
+        displayed = TRUE;
+    }
+
+    //Joystick
+    state = joystick_read();
+    if (state != 0 && (getTicks()-joyPress>JOY_DEBOUNCE_TIME)) {
+        drawOled(state);
+        joyPress=getTicks();
+    }
+
+    char msgDisplay[99];
+    char msgFire[40];
+    char msgDarkMovement[40];
+    //conditions
+    //Counter reaches number F, UART sends message.
+    if (ch == 16) {
+        ch = 0; //char rollover, 7seg
+
+        if (redBlink == 1) {
+            sprintf(msgFire, "Fire was Detected.");
+            UART_send_improved(msgFire);
+        }
+        if (bluBlink == 2) {
+            sprintf(msgDarkMovement, "Movement in darkness was Detected.");
+            UART_send_improved(msgDarkMovement);
+        }
+
+        sprintf(msgDisplay, "%03d_-_T%03.1f_L%04d_AX%02d_AY%02d_AZ%02d",
+                uart_count++, tempReading, lightReading, x, y, z);
+        printf(msgDisplay);
+        UART_send_improved(msgDisplay);
+
+    }
+
+    if ((getTicks() - currTime) > 1000) {
+
+
+
+        if ((!bluBlink ) && (lightReading < LIGHT_LOW_WARNING + light_adjust) && (detectMotion())) {
+            alert = TRUE;
+            bluBlink = RGB_BLUE;
+        }
+
+        //resets display token
+        displayed = FALSE;
+        //7seg
+        led7seg_setChar(numToChar(ch++), FALSE);
+        sprintf(thresholds, "T/L: %.1f /%3d", TEMP_HIGH_WARNING + temp_adjust,
+                LIGHT_LOW_WARNING + light_adjust);
+        oled_putString(1, 51, (uint8_t *) thresholds, OLED_COLOR_BLACK,
+                OLED_COLOR_WHITE);
+
+        //reconfig currTime
+        currTime = getTicks();
+    }
+}
 }
 
 int main(void) {
 
 //sysTick
-    if (SysTick_Config(SystemCoreClock / 1000)) {
-        while (1)
-            ;  // Capture error
-    }
+if (SysTick_Config(SystemCoreClock / 1000)) {
+    while (1)
+        ;  // Capture error
+}
 
-    init_all();
+init_all();
 
-    while (1) {
-        if (currMode == Monitor)
-            monitorMode();
-        if (currMode == Stable)
-            stableMode();
-    }
+while (1) {
+    if (currMode == Monitor)
+        monitorMode();
+    if (currMode == Stable)
+        stableMode();
+}
 
 }
 
 void check_failed(uint8_t *file, uint32_t line) {
-    /* User can add his own implementation to report the file name and line number,
-     ex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */
+/* User can add his own implementation to report the file name and line number,
+ ex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */
 
-    /* Infinite loop */
-    while (1)
-        ;
+/* Infinite loop */
+while (1)
+    ;
 }
 
