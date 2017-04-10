@@ -36,6 +36,7 @@ static const float TEMP_HIGH_WARNING = 45.0;
 static const int MOVEMENT_THRESHOLD = 4;
 static const int DEBOUNCE_TIME = 500;
 static const int JOY_DEBOUNCE_TIME = 200;
+int moveCount = 0;
 float temp_adjust = 0.0;
 int light_adjust = 0;
 
@@ -250,7 +251,7 @@ static void init_all() {
     oled_clearScreen(OLED_COLOR_WHITE);
 }
 
-static void drawOled(uint8_t joyState) {
+static void thresholdControl(uint8_t joyState) {
     //static int wait = 0;
 
     if ((joyState & JOYSTICK_CENTER) != 0) {
@@ -320,9 +321,6 @@ void acc_read_improved(int8_t *x, int8_t *y, int8_t *z) {
 
 Bool detectMotion() {
 
-
-    static int moveCount = 0;
-
     acc_read_improved(&x, &y, &z);
 
     Bool moved = abs(xPrev - x) / MOVEMENT_THRESHOLD
@@ -330,18 +328,14 @@ Bool detectMotion() {
             || abs(zPrev - z) / MOVEMENT_THRESHOLD;
 
     if (moved != 0) {
-        //printf("motion Detected\n");
         if (moveCount < 5){
             moveCount++;
-            //printf("moveCount increment moveCount: %d\n", moveCount);
             return FALSE;
         } else {
-            //printf("moveCount maxed, alert sent, moveCount: %d\n", moveCount);
             return TRUE;
         }
     } else {
         moveCount = 0;
-        //printf("no motion Detected moveCount: %d\n", moveCount);
         return FALSE;
     }
 }
@@ -354,6 +348,7 @@ while (currMode == Stable) {
     led7seg_setChar(' ', FALSE); // 7seg switch off
     rgb_setLeds(4); // rgb switch off
     alert = FALSE; // turn off warnings
+    moveCount = 0; // resets motion tokens
 
     if (!btn1Press() && ((getTicks() - lastPress) > DEBOUNCE_TIME)) {
         currMode = Monitor;
@@ -396,7 +391,6 @@ while (currMode == Monitor) {
         alert = TRUE;
         redBlink = RGB_RED;
     }
-
 
     if (alert) {
         if ((getTicks() - blinkTime) > 166) {
@@ -456,7 +450,7 @@ while (currMode == Monitor) {
     //Joystick
     state = joystick_read();
     if (state != 0 && (getTicks()-joyPress>JOY_DEBOUNCE_TIME)) {
-        drawOled(state);
+        thresholdControl(state);
         joyPress=getTicks();
     }
 
